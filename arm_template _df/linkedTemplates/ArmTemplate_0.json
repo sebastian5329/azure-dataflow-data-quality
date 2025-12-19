@@ -1,0 +1,354 @@
+{
+    "$schema": "http://schema.management.azure.com/schemas/2015-01-01/deploymentTemplate.json#",
+    "contentVersion": "1.0.0.0",
+    "parameters": {
+        "factoryName": {
+            "type": "string",
+            "metadata": "Data Factory name",
+            "defaultValue": "cloud-dev-adfws"
+        },
+        "ls_sqldb_password": {
+            "type": "secureString",
+            "metadata": "Secure string for 'password' of 'ls_sqldb'"
+        },
+        "ls_adls_accountKey": {
+            "type": "secureString",
+            "metadata": "Secure string for 'accountKey' of 'ls_adls'"
+        },
+        "ls_sqldb_properties_typeProperties_server": {
+            "type": "string",
+            "defaultValue": "cloudsqlserver01.database.windows.net"
+        },
+        "ls_sqldb_properties_typeProperties_database": {
+            "type": "string",
+            "defaultValue": "sqldb"
+        },
+        "ls_sqldb_properties_typeProperties_userName": {
+            "type": "string",
+            "defaultValue": "sebastian"
+        },
+        "ls_adls_properties_typeProperties_url": {
+            "type": "string",
+            "defaultValue": "https://cloudadls01.dfs.core.windows.net/"
+        }
+    },
+    "variables": {
+        "factoryId": "[concat('Microsoft.DataFactory/factories/', parameters('factoryName'))]"
+    },
+    "resources": [
+        {
+            "name": "[concat(parameters('factoryName'), '/ls_sqldb')]",
+            "type": "Microsoft.DataFactory/factories/linkedServices",
+            "apiVersion": "2018-06-01",
+            "properties": {
+                "annotations": [],
+                "type": "AzureSqlDatabase",
+                "typeProperties": {
+                    "server": "[parameters('ls_sqldb_properties_typeProperties_server')]",
+                    "database": "[parameters('ls_sqldb_properties_typeProperties_database')]",
+                    "encrypt": "mandatory",
+                    "trustServerCertificate": true,
+                    "authenticationType": "SQL",
+                    "userName": "[parameters('ls_sqldb_properties_typeProperties_userName')]",
+                    "password": {
+                        "type": "SecureString",
+                        "value": "[parameters('ls_sqldb_password')]"
+                    }
+                }
+            },
+            "dependsOn": []
+        },
+        {
+            "name": "[concat(parameters('factoryName'), '/ls_adls')]",
+            "type": "Microsoft.DataFactory/factories/linkedServices",
+            "apiVersion": "2018-06-01",
+            "properties": {
+                "annotations": [],
+                "type": "AzureBlobFS",
+                "typeProperties": {
+                    "url": "[parameters('ls_adls_properties_typeProperties_url')]",
+                    "accountKey": {
+                        "type": "SecureString",
+                        "value": "[parameters('ls_adls_accountKey')]"
+                    }
+                }
+            },
+            "dependsOn": []
+        },
+        {
+            "name": "[concat(parameters('factoryName'), '/ds_adls')]",
+            "type": "Microsoft.DataFactory/factories/datasets",
+            "apiVersion": "2018-06-01",
+            "properties": {
+                "linkedServiceName": {
+                    "referenceName": "ls_adls",
+                    "type": "LinkedServiceReference"
+                },
+                "parameters": {
+                    "ds_param_srctbl": {
+                        "type": "string"
+                    },
+                    "ds_param_pdate": {
+                        "type": "string"
+                    }
+                },
+                "annotations": [],
+                "type": "DelimitedText",
+                "typeProperties": {
+                    "location": {
+                        "type": "AzureBlobFSLocation",
+                        "folderPath": {
+                            "value": "@concat('india/landing/',dataset().ds_param_srctbl,'/',dataset().ds_param_pdate)",
+                            "type": "Expression"
+                        },
+                        "fileSystem": "global"
+                    },
+                    "columnDelimiter": ",",
+                    "escapeChar": "\\",
+                    "firstRowAsHeader": true,
+                    "quoteChar": "\""
+                },
+                "schema": [
+                    {
+                        "name": "cid",
+                        "type": "String"
+                    },
+                    {
+                        "name": "cname",
+                        "type": "String"
+                    },
+                    {
+                        "name": "clocation",
+                        "type": "String"
+                    },
+                    {
+                        "name": "cphno",
+                        "type": "String"
+                    },
+                    {
+                        "name": "cjoindate",
+                        "type": "String"
+                    }
+                ]
+            },
+            "dependsOn": [
+                "[concat(variables('factoryId'), '/linkedServices/ls_adls')]"
+            ]
+        },
+        {
+            "name": "[concat(parameters('factoryName'), '/ds_sqldb')]",
+            "type": "Microsoft.DataFactory/factories/datasets",
+            "apiVersion": "2018-06-01",
+            "properties": {
+                "linkedServiceName": {
+                    "referenceName": "ls_sqldb",
+                    "type": "LinkedServiceReference"
+                },
+                "parameters": {
+                    "ds_param_schema": {
+                        "type": "string"
+                    },
+                    "ds_param_table": {
+                        "type": "string"
+                    }
+                },
+                "annotations": [],
+                "type": "AzureSqlTable",
+                "schema": [],
+                "typeProperties": {
+                    "schema": {
+                        "value": "@dataset().ds_param_schema",
+                        "type": "Expression"
+                    },
+                    "table": {
+                        "value": "@dataset().ds_param_table",
+                        "type": "Expression"
+                    }
+                }
+            },
+            "dependsOn": [
+                "[concat(variables('factoryId'), '/linkedServices/ls_sqldb')]"
+            ]
+        },
+        {
+            "name": "[concat(parameters('factoryName'), '/dataflow1')]",
+            "type": "Microsoft.DataFactory/factories/dataflows",
+            "apiVersion": "2018-06-01",
+            "properties": {
+                "type": "MappingDataFlow",
+                "typeProperties": {
+                    "sources": [
+                        {
+                            "dataset": {
+                                "referenceName": "ds_adls",
+                                "type": "DatasetReference"
+                            },
+                            "name": "source1"
+                        }
+                    ],
+                    "sinks": [
+                        {
+                            "dataset": {
+                                "referenceName": "ds_sqldb",
+                                "type": "DatasetReference"
+                            },
+                            "name": "sink1"
+                        },
+                        {
+                            "dataset": {
+                                "referenceName": "ds_sqldb",
+                                "type": "DatasetReference"
+                            },
+                            "name": "sink2"
+                        }
+                    ],
+                    "transformations": [
+                        {
+                            "name": "window1"
+                        },
+                        {
+                            "name": "derivedColumn1"
+                        },
+                        {
+                            "name": "split1"
+                        },
+                        {
+                            "name": "select1"
+                        },
+                        {
+                            "name": "derivedColumn2"
+                        },
+                        {
+                            "name": "select2"
+                        }
+                    ],
+                    "scriptLines": [
+                        "source(output(",
+                        "          cid as integer,",
+                        "          cname as string,",
+                        "          clocation as string,",
+                        "          cphno as long,",
+                        "          cjoindate as string",
+                        "     ),",
+                        "     allowSchemaDrift: true,",
+                        "     validateSchema: false,",
+                        "     ignoreNoFilesFound: false) ~> source1",
+                        "source1 window(over(cid,",
+                        "          cname,",
+                        "          clocation,",
+                        "          cphno,",
+                        "          cjoindate),",
+                        "     asc(cid, true),",
+                        "     rownumber = rowNumber()) ~> window1",
+                        "window1 derive(phnno_null_flag = iif(isNull(cphno),'yes','no'),",
+                        "          dateformat_flag = iif(isNull(toDate(cjoindate,'yyyy-MM-dd')),'yes','no')) ~> derivedColumn1",
+                        "derivedColumn1 split(rownumber==1&&phnno_null_flag=='no'&&dateformat_flag=='no',",
+                        "     disjoint: false) ~> split1@(GoodRecords, BadRecords)",
+                        "split1@GoodRecords select(mapColumn(",
+                        "          cid,",
+                        "          cname,",
+                        "          clocation,",
+                        "          cphno,",
+                        "          cjoindate",
+                        "     ),",
+                        "     skipDuplicateMapInputs: true,",
+                        "     skipDuplicateMapOutputs: true) ~> select1",
+                        "split1@BadRecords derive(reject_reason = iif(rownumber>1,'Duplicate Record',iif(phnno_null_flag=='yes','Null Record','Incorrect dateformat'))) ~> derivedColumn2",
+                        "derivedColumn2 select(mapColumn(",
+                        "          cid,",
+                        "          cname,",
+                        "          clocation,",
+                        "          cphno,",
+                        "          cjoindate,",
+                        "          reject_reason",
+                        "     ),",
+                        "     skipDuplicateMapInputs: true,",
+                        "     skipDuplicateMapOutputs: true) ~> select2",
+                        "select1 sink(allowSchemaDrift: true,",
+                        "     validateSchema: false,",
+                        "     deletable:false,",
+                        "     insertable:true,",
+                        "     updateable:false,",
+                        "     upsertable:false,",
+                        "     recreate:true,",
+                        "     format: 'table',",
+                        "     skipDuplicateMapInputs: true,",
+                        "     skipDuplicateMapOutputs: true,",
+                        "     errorHandlingOption: 'stopOnFirstError') ~> sink1",
+                        "select2 sink(allowSchemaDrift: true,",
+                        "     validateSchema: false,",
+                        "     deletable:false,",
+                        "     insertable:true,",
+                        "     updateable:false,",
+                        "     upsertable:false,",
+                        "     recreate:true,",
+                        "     format: 'table',",
+                        "     skipDuplicateMapInputs: true,",
+                        "     skipDuplicateMapOutputs: true,",
+                        "     errorHandlingOption: 'stopOnFirstError') ~> sink2"
+                    ]
+                }
+            },
+            "dependsOn": [
+                "[concat(variables('factoryId'), '/datasets/ds_adls')]",
+                "[concat(variables('factoryId'), '/datasets/ds_sqldb')]"
+            ]
+        },
+        {
+            "name": "[concat(parameters('factoryName'), '/pipeline1')]",
+            "type": "Microsoft.DataFactory/factories/pipelines",
+            "apiVersion": "2018-06-01",
+            "properties": {
+                "activities": [
+                    {
+                        "name": "Data flow1",
+                        "type": "ExecuteDataFlow",
+                        "dependsOn": [],
+                        "policy": {
+                            "timeout": "0.12:00:00",
+                            "retry": 0,
+                            "retryIntervalInSeconds": 30,
+                            "secureOutput": false,
+                            "secureInput": false
+                        },
+                        "userProperties": [],
+                        "typeProperties": {
+                            "dataflow": {
+                                "referenceName": "dataflow1",
+                                "type": "DataFlowReference",
+                                "parameters": {},
+                                "datasetParameters": {
+                                    "source1": {
+                                        "ds_param_srctbl": "cust",
+                                        "ds_param_pdate": "2025/02/03"
+                                    },
+                                    "sink1": {
+                                        "ds_param_schema": "dbo",
+                                        "ds_param_table": "cust"
+                                    },
+                                    "sink2": {
+                                        "ds_param_schema": "dbo",
+                                        "ds_param_table": "error_table"
+                                    }
+                                }
+                            },
+                            "staging": {},
+                            "compute": {
+                                "coreCount": 8,
+                                "computeType": "General"
+                            },
+                            "traceLevel": "Fine"
+                        }
+                    }
+                ],
+                "policy": {
+                    "elapsedTimeMetric": {}
+                },
+                "annotations": []
+            },
+            "dependsOn": [
+                "[concat(variables('factoryId'), '/dataflows/dataflow1')]"
+            ]
+        }
+    ]
+}
